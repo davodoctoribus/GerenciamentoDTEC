@@ -910,15 +910,27 @@ ipcMain.handle(
       estadoCompeticao,
 
     )
-
-
+try {
+      if (
+        estadoCompeticao &&
+        estadoCompeticao.estado === 'em_andamento' &&
+        estadoCompeticao.fila &&
+        estadoCompeticao.fila.length > 0
+      ) {
+        const vezAtual = estadoCompeticao.fila[estadoCompeticao.indiceAtual]
+        if (vezAtual) {
+          const dadosFila = `${vezAtual.competidor.id}_${vezAtual.tentativa}`
+          const caminhoFila = path.join(caminhoPastaDados(), 'fila_atual.txt')
+          fs.writeFileSync(caminhoFila, dadosFila, 'utf8')
+        }
+      }
+    } catch (err) {
+      console.error('Erro ao atualizar fila_atual.txt:', err)
+    }
 
     return estadoCompeticao
-
   },
-
 )
-
 
 
 // ==========================================================
@@ -1043,19 +1055,49 @@ function observarResultados() {
 
 
 
-          timerAtualizacao =
+timerAtualizacao = setTimeout(() => {
+        transmitirResultados()
 
-            setTimeout(
+        // Auto-finaliza o motor se o Python inseriu o resultado válido no CSV
+        if (
+          estadoCompeticao &&
+          estadoCompeticao.estado === 'em_andamento' &&
+          (estadoCompeticao.corrida === 'correndo' || estadoCompeticao.corrida === 'aguardando')
+        ) {
+          try {
+            const vezAtual = estadoCompeticao.fila[estadoCompeticao.indiceAtual]
+            if (vezAtual) {
+              const caminhoCsv = caminhoDados('resultados.csv')
+              if (fs.existsSync(caminhoCsv)) {
+                const conteudoCsv = fs.readFileSync(caminhoCsv, 'utf8')
+                const linhas = conteudoCsv.split('\n')
+                let temResultadoInjetado = false
 
-              () => {
+                for (const linha of linhas) {
+                  const colunas = linha.split(';')
+                  if (colunas.length >= 6) {
+                    const cid = parseInt(colunas[0], 10)
+                    const tentativa = parseInt(colunas[1], 10)
+                    const status = colunas[5].trim().toUpperCase()
 
-                transmitirResultados()
+                    if (cid === vezAtual.competidor.id && tentativa === vezAtual.tentativa && status === 'VALIDA') {
+                      temResultadoInjetado = true
+                      break
+                    }
+                  }
+                }
 
-              },
-
-              150,
-
-            )
+                if (temResultadoInjetado) {
+                  estadoCompeticao.corrida = 'finalizada'
+                  enviarParaTodasAsJanelas('estado-competicao-atualizado', estadoCompeticao)
+                }
+              }
+            }
+          } catch (err) {
+            console.error('Erro na auto-finalização:', err)
+          }
+        }
+      }, 150)
 
         },
 
